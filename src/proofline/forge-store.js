@@ -25,132 +25,139 @@ function emptySummary() {
   return { evidenceCount: 0, byCriterion: {}, latestEvidenceIds: [] };
 }
 
-async function getOrCreateIssueState(issueKey) {
-  const entity = kvs.entity(ISSUE_STATE_ENTITY);
-  let state = await entity.get(issueKey);
-  if (state) {
-    if (!Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
-      throw new Error('Stored Proofline issue state is invalid');
+export function createForgeStore({ storage = kvs, FilterClass = Filter, filterConditions = FilterConditions } = {}) {
+  async function getOrCreateIssueState(issueKey) {
+    const entity = storage.entity(ISSUE_STATE_ENTITY);
+    let state = await entity.get(issueKey);
+    if (state) {
+      if (!Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
+        throw new Error('Stored Proofline issue state is invalid');
+      }
+      return state;
+    }
+    try {
+      await entity.set(issueKey, { version: 0, summaryJson: JSON.stringify(emptySummary()), policyJson: JSON.stringify({ requiredCriteria: [] }) }, { keyPolicy: 'FAIL_IF_EXISTS' });
+    } catch (error) {
+      if (!isConflict(error)) throw error;
+    }
+    state = await entity.get(issueKey);
+    if (!state || !Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
+      throw new Error('Unable to initialize Proofline issue state');
     }
     return state;
   }
-  try {
-    await entity.set(issueKey, { version: 0, summaryJson: JSON.stringify(emptySummary()), policyJson: JSON.stringify({ requiredCriteria: [] }) }, { keyPolicy: 'FAIL_IF_EXISTS' });
-  } catch (error) {
-    if (!isConflict(error)) throw error;
+
+  async function getSecretState() {
+    return (await storage.getSecret(SECRET_KEY)) ?? null;
   }
-  state = await entity.get(issueKey);
-  if (!state || !Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
-    throw new Error('Unable to initialize Proofline issue state');
+
+  async function saveSecretState(state) {
+    await storage.setSecret(SECRET_KEY, state, { keyPolicy: 'OVERRIDE' });
   }
-  return state;
-}
 
-export async function getSecretState() {
-  return (await kvs.getSecret(SECRET_KEY)) ?? null;
-}
-
-export async function saveSecretState(state) {
-  await kvs.setSecret(SECRET_KEY, state, { keyPolicy: 'OVERRIDE' });
-}
-
-export async function claimNonce(nonce, nowMs) {
-  try {
-    await kvs.set(`proofline:nonce:${nonce}`, { claimedAt: new Date(nowMs).toISOString() }, {
-      keyPolicy: 'FAIL_IF_EXISTS',
-      ttl: { unit: 'MINUTES', value: NONCE_TTL_MINUTES },
-    });
-  } catch (error) {
-    if (isConflict(error)) throw new StoreConflictError('nonce already claimed');
-    throw error;
-  }
-}
-
-export async function saveEvidence(record) {
-  const recordKey = evidenceKey(record.issueKey, record.evidenceId);
-  const serializedRecord = JSON.stringify(record);
-  for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
-    const existing = await kvs.entity(EVIDENCE_ENTITY).get(recordKey);
-    if (existing) {
-      if (existing.recordJson === serializedRecord) return;
-      throw new StoreConflictError('evidence ID already exists with different content');
-    }
-    const state = await getOrCreateIssueState(record.issueKey);
-    const currentSummary = JSON.parse(state.summaryJson);
-    const byCriterion = { ...(currentSummary.byCriterion ?? {}) };
-    const stats = { ...(byCriterion[record.criterionKey] ?? { passCount: 0, failCount: 0 }) };
-    if (record.outcome === 'PASS') stats.passCount += 1;
-    else stats.failCount += 1;
-    stats.lastObservedAt = record.observedAt;
-    byCriterion[record.criterionKey] = stats;
-    const nextSummary = {
-      evidenceCount: (currentSummary.evidenceCount ?? 0) + 1,
-      byCriterion,
-      latestEvidenceIds: [record.evidenceId, ...(currentSummary.latestEvidenceIds ?? [])].slice(0, LATEST_EVIDENCE_LIMIT),
-    };
-
+  async function claimNonce(nonce, nowMs) {
     try {
-      await kvs.transact()
-        .set(recordKey, { recordJson: serializedRecord }, { entityName: EVIDENCE_ENTITY })
-        .set(record.issueKey, {
-          version: state.version + 1,
-          summaryJson: JSON.stringify(nextSummary),
-          policyJson: state.policyJson,
-        }, {
-          entityName: ISSUE_STATE_ENTITY,
-          conditions: new Filter().and('version', FilterConditions.equalTo(state.version)),
-        })
-        .execute();
-      return nextSummary;
+      await storage.set(`proofline:nonce:${nonce}`, { claimedAt: new Date(nowMs).toISOString() }, {
+        keyPolicy: 'FAIL_IF_EXISTS',
+        ttl: { unit: 'MINUTES', value: NONCE_TTL_MINUTES },
+      });
     } catch (error) {
-      const existingAfterConflict = await kvs.entity(EVIDENCE_ENTITY).get(recordKey);
-      if (existingAfterConflict) {
-        if (existingAfterConflict.recordJson === serializedRecord) return;
+      if (isConflict(error)) throw new StoreConflictError('nonce already claimed');
+      throw error;
+    }
+  }
+
+  async function saveEvidence(record) {
+    const recordKey = evidenceKey(record.issueKey, record.evidenceId);
+    const serializedRecord = JSON.stringify(record);
+    for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
+      const existing = await storage.entity(EVIDENCE_ENTITY).get(recordKey);
+      if (existing) {
+        if (existing.recordJson === serializedRecord) return;
         throw new StoreConflictError('evidence ID already exists with different content');
       }
-      const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(record.issueKey);
-      if (latestState && latestState.version !== state.version) continue;
-      if (!isConflict(error)) throw error;
+      const state = await getOrCreateIssueState(record.issueKey);
+      const currentSummary = JSON.parse(state.summaryJson);
+      const byCriterion = { ...(currentSummary.byCriterion ?? {}) };
+      const stats = { ...(byCriterion[record.criterionKey] ?? { passCount: 0, failCount: 0 }) };
+      if (record.outcome === 'PASS') stats.passCount += 1;
+      else stats.failCount += 1;
+      stats.lastObservedAt = record.observedAt;
+      byCriterion[record.criterionKey] = stats;
+      const nextSummary = {
+        evidenceCount: (currentSummary.evidenceCount ?? 0) + 1,
+        byCriterion,
+        latestEvidenceIds: [record.evidenceId, ...(currentSummary.latestEvidenceIds ?? [])].slice(0, LATEST_EVIDENCE_LIMIT),
+      };
+
+      try {
+        await storage.transact()
+          .set(recordKey, { recordJson: serializedRecord }, { entityName: EVIDENCE_ENTITY })
+          .set(record.issueKey, {
+            version: state.version + 1,
+            summaryJson: JSON.stringify(nextSummary),
+            policyJson: state.policyJson,
+          }, {
+            entityName: ISSUE_STATE_ENTITY,
+            conditions: new FilterClass().and('version', filterConditions.equalTo(state.version)),
+          })
+          .execute();
+        return nextSummary;
+      } catch (error) {
+        const existingAfterConflict = await storage.entity(EVIDENCE_ENTITY).get(recordKey);
+        if (existingAfterConflict) {
+          if (existingAfterConflict.recordJson === serializedRecord) return;
+          throw new StoreConflictError('evidence ID already exists with different content');
+        }
+        const latestState = await storage.entity(ISSUE_STATE_ENTITY).get(record.issueKey);
+        if (latestState && latestState.version !== state.version) continue;
+        if (!isConflict(error)) throw error;
+      }
     }
+    throw new StoreBusyError('concurrent evidence updates did not settle after optimistic retries');
   }
-  throw new StoreBusyError('concurrent evidence updates did not settle after optimistic retries');
+
+  async function getIssueEvidence(issueKey) {
+    const state = await storage.entity(ISSUE_STATE_ENTITY).get(issueKey);
+    const summary = state ? JSON.parse(state.summaryJson) : emptySummary();
+    const policy = state ? JSON.parse(state.policyJson) : { requiredCriteria: [] };
+    const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
+    const values = await Promise.all(ids.map((id) => storage.entity(EVIDENCE_ENTITY).get(evidenceKey(issueKey, id))));
+    const records = values.filter(Boolean).map((value) => JSON.parse(value.recordJson));
+    return {
+      summary,
+      policy,
+      records,
+      incomplete: records.length !== ids.length || ids.length !== Math.min(summary.evidenceCount ?? 0, LATEST_EVIDENCE_LIMIT),
+    };
+  }
+
+  async function saveIssuePolicy(issueKey, policy) {
+    for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
+      const state = await getOrCreateIssueState(issueKey);
+      try {
+        await storage.transact()
+          .set(issueKey, {
+            version: state.version + 1,
+            summaryJson: state.summaryJson,
+            policyJson: JSON.stringify(policy),
+          }, {
+            entityName: ISSUE_STATE_ENTITY,
+            conditions: new FilterClass().and('version', filterConditions.equalTo(state.version)),
+          })
+          .execute();
+        return;
+      } catch (error) {
+        const latestState = await storage.entity(ISSUE_STATE_ENTITY).get(issueKey);
+        if (latestState && latestState.version !== state.version) continue;
+        if (!isConflict(error)) throw error;
+      }
+    }
+    throw new StoreBusyError('concurrent policy updates did not settle after optimistic retries');
+  }
+
+  return { getSecretState, saveSecretState, claimNonce, saveEvidence, getIssueEvidence, saveIssuePolicy };
 }
 
-export async function getIssueEvidence(issueKey) {
-  const state = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
-  const summary = state ? JSON.parse(state.summaryJson) : emptySummary();
-  const policy = state ? JSON.parse(state.policyJson) : { requiredCriteria: [] };
-  const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
-  const values = await Promise.all(ids.map((id) => kvs.entity(EVIDENCE_ENTITY).get(evidenceKey(issueKey, id))));
-  const records = values.filter(Boolean).map((value) => JSON.parse(value.recordJson));
-  return {
-    summary,
-    policy,
-    records,
-    incomplete: records.length !== ids.length || ids.length !== Math.min(summary.evidenceCount ?? 0, LATEST_EVIDENCE_LIMIT),
-  };
-}
-
-export async function saveIssuePolicy(issueKey, policy) {
-  for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
-    const state = await getOrCreateIssueState(issueKey);
-    try {
-      await kvs.transact()
-        .set(issueKey, {
-          version: state.version + 1,
-          summaryJson: state.summaryJson,
-          policyJson: JSON.stringify(policy),
-        }, {
-          entityName: ISSUE_STATE_ENTITY,
-          conditions: new Filter().and('version', FilterConditions.equalTo(state.version)),
-        })
-        .execute();
-      return;
-    } catch (error) {
-      const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
-      if (latestState && latestState.version !== state.version) continue;
-      if (!isConflict(error)) throw error;
-    }
-  }
-  throw new StoreBusyError('concurrent policy updates did not settle after optimistic retries');
-}
+const forgeStore = createForgeStore();
+export const { getSecretState, saveSecretState, claimNonce, saveEvidence, getIssueEvidence, saveIssuePolicy } = forgeStore;
