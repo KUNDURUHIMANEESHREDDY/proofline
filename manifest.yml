@@ -1,0 +1,32 @@
+# Run `forge register proofline` once to populate app.id before lint/deploy.
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 512
+modules:
+  jira:issuePanel:
+    - key: proofline-issue-panel
+      resource: proofline-ui
+      resolver:
+        function: proofline-resolver
+      render: native
+      title: Proofline
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  webtrigger:
+    - key: github-actions-evidence
+      function: github-actions-ingress
+      urlFormat: v2
+      response:
+        type: dynamic
+  function:
+    - key: proofline-resolver
+      handler: index.handler
+    - key: github-actions-ingress
+      handler: index.ingest
+resources:
+  - key: proofline-ui
+    path: src/frontend/index.jsx
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
