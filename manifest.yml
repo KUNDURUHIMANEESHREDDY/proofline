@@ -11,6 +11,10 @@ app:
             type: integer
           summaryJson:
             type: string
+      - name: proofline-evidence
+        attributes:
+          recordJson:
+            type: string
 modules:
   jira:issuePanel:
     - key: proofline-issue-panel

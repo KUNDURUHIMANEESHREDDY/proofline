@@ -5,6 +5,7 @@ import { StoreBusyError, StoreConflictError } from './errors.js';
 const SECRET_KEY = 'proofline:github-actions:hmac-secret:v1';
 const NONCE_TTL_MINUTES = 10;
 const ISSUE_STATE_ENTITY = 'proofline-issue-state';
+const EVIDENCE_ENTITY = 'proofline-evidence';
 const LATEST_EVIDENCE_LIMIT = 25;
 const MAX_OPTIMISTIC_RETRIES = 8;
 
@@ -68,7 +69,7 @@ export async function claimNonce(nonce, nowMs) {
 export async function saveEvidence(record) {
   const recordKey = evidenceKey(record.issueKey, record.evidenceId);
   for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
-    if (await kvs.get(recordKey)) throw new StoreConflictError('evidence ID already exists');
+    if (await kvs.entity(EVIDENCE_ENTITY).get(recordKey)) throw new StoreConflictError('evidence ID already exists');
     const state = await getOrCreateIssueState(record.issueKey);
     const currentSummary = JSON.parse(state.summaryJson);
     const byCriterion = { ...(currentSummary.byCriterion ?? {}) };
@@ -85,7 +86,7 @@ export async function saveEvidence(record) {
 
     try {
       await kvs.transact()
-        .set(recordKey, record)
+        .set(recordKey, { recordJson: JSON.stringify(record) }, { entityName: EVIDENCE_ENTITY })
         .set(record.issueKey, {
           version: state.version + 1,
           summaryJson: JSON.stringify(nextSummary),
@@ -96,7 +97,7 @@ export async function saveEvidence(record) {
         .execute();
       return nextSummary;
     } catch (error) {
-      if (await kvs.get(recordKey)) throw new StoreConflictError('evidence ID already exists');
+      if (await kvs.entity(EVIDENCE_ENTITY).get(recordKey)) throw new StoreConflictError('evidence ID already exists');
       const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(record.issueKey);
       if (latestState && latestState.version !== state.version) continue;
       if (!isConflict(error)) throw error;
@@ -109,7 +110,8 @@ export async function getIssueEvidence(issueKey) {
   const state = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
   const summary = state ? JSON.parse(state.summaryJson) : emptySummary();
   const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
-  const records = (await Promise.all(ids.map((id) => kvs.get(evidenceKey(issueKey, id))))).filter(Boolean);
+  const values = await Promise.all(ids.map((id) => kvs.entity(EVIDENCE_ENTITY).get(evidenceKey(issueKey, id))));
+  const records = values.filter(Boolean).map((value) => JSON.parse(value.recordJson));
   return { summary, records, incomplete: records.length !== ids.length };
 }
 
