@@ -17,6 +17,7 @@ app:
         attributes:
           recordJson:
             type: string
+  id: ari:cloud:ecosystem::app/f89389d3-1a76-4aff-b8e3-f2e7b4c9e025
 modules:
   jira:issuePanel:
     - key: proofline-issue-panel
@@ -25,6 +26,7 @@ modules:
         function: proofline-resolver
       render: native
       title: Proofline
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
   webtrigger:
     - key: github-actions-evidence
       function: github-actions-ingress

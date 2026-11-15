@@ -1,0 +1,52 @@
+name: Proofline evidence verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: Jira issue key for the Evidence Passport test
+        required: true
+        type: string
+      criterion_key:
+        description: Required criterion key to receive this evidence
+        required: true
+        default: unit-tests
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run Proofline test suite
+        run: npm test
+
+  submit-evidence:
+    needs: verify
+    if: always() && needs.verify.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Submit verification evidence to Jira
+        env:
+          PROOFLINE_WEBTRIGGER_URL: ${{ vars.PROOFLINE_WEBTRIGGER_URL }}
+          PROOFLINE_WEBHOOK_SECRET: ${{ secrets.PROOFLINE_WEBHOOK_SECRET }}
+          PROOFLINE_ISSUE_KEY: ${{ inputs.issue_key }}
+          PROOFLINE_CRITERION_KEY: ${{ inputs.criterion_key }}
+          PROOFLINE_OUTCOME: ${{ needs.verify.result == 'success' && 'PASS' || 'FAIL' }}
+          PROOFLINE_SUMMARY: "GitHub Actions npm test job result: ${{ needs.verify.result }}"
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node scripts/submit-proofline-evidence.mjs

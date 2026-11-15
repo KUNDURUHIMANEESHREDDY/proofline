@@ -9,12 +9,11 @@ Proofline gives each Jira issue an evidence-backed completion status. It does no
 - Forge Jira issue panel (UI Kit).
 - Per-issue required-criteria policy, versioned atomically with the evidence summary.
 - Per-installation Forge hosted storage: Custom Entity Store for evidence and issue state, KVS for nonce claims, and Secret Store for signing keys.
-- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue version-checked atomic transactions, and duplicate evidence-ID protection with idempotent exact retransmissions. The trigger uses static response outputs to keep Runs on Atlassian eligibility possible.
+- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue version-checked atomic transactions, and duplicate evidence-ID protection with idempotent exact retransmissions.
 - Encrypted Forge KVS Secret Store for the webhook signing key, with a 15-minute rotation overlap.
 - Deterministic `PASS`, `FAIL`, and `INDETERMINATE` verdict derivation.
 - MCP Inspector operational observation adapter; observations cannot satisfy verification criteria.
-
-The Forge app is scaffolded but has not yet been registered, deployed, or installed in a Jira site. The first successful Forge deployment and live end-to-end webhook test remain outstanding.
+- Registered Forge app deployed to the `development` environment and installed in a Jira Cloud site for testing. Live evidence submission and Passport verification remain the final integration checks.
 
 ## Product principles
 
@@ -33,27 +32,22 @@ The Forge app is scaffolded but has not yet been registered, deployed, or instal
 - `src/proofline/` — verdict, authentication, ingress, and storage modules.
 - `schemas/proofline-evidence-v1.schema.json` — strict evidence envelope.
 - `scripts/submit-proofline-evidence.mjs` — dependency-free GitHub Actions submitter.
-- `docs/proofline/PRODUCT_SPEC.md` — product scope, architecture, security requirements, and delivery plan.
+- `.github/workflows/proofline-evidence.yml` — manually dispatched end-to-end CI evidence workflow.
 - `docs/integrations/GITHUB_ACTIONS.md` — setup and workflow integration.
 - `docs/integrations/EXISTING_REPOSITORIES.md` — reused foundation boundaries.
 - `docs/decisions/0001-forge-kvs-for-mvp.md` — initial Forge storage decision and limits.
 
 ## Development
 
-Requires Node.js 20 or later. Install dependencies with `npm install`, then run:
+Requires Node.js 24 for the Forge runtime and CI workflow. Install dependencies with `npm ci`, then run:
 
 ```sh
 npm test
-```
-
-Install the Forge CLI globally and register the app once:
-
-```sh
-npm install --global @forge/cli
-forge register proofline
 forge lint
 forge deploy --environment development
 ```
+
+Register this existing repository once with `forge register proofline`; keep the generated `app.id` in `manifest.yml`.
 
 See [GitHub Actions integration](docs/integrations/GITHUB_ACTIONS.md) for the Forge installation, web trigger, signing secret, and workflow setup.
 
@@ -63,4 +57,6 @@ A Jira issue starts with no configured criteria and therefore has an `INDETERMIN
 
 ## Security note
 
-The HMAC authenticates possession of the shared per-installation secret. It is not a GitHub cryptographic workflow attestation. Anyone who can access that secret can submit allowed evidence for that Forge installation. Protect repository secrets and workflow write permissions, and never expose the secret to fork pull requests or untrusted code. Schema validation does not verify artifact contents or establish that a trusted CI job actually ran the claimed command.
+The HMAC authenticates possession of the shared per-installation secret. It is not a GitHub cryptographic workflow attestation. Anyone who can access that secret can submit allowed evidence for this Forge installation. Protect repository secrets and workflow write permissions, and never expose the secret to fork pull requests or untrusted code. Schema validation does not verify artifact contents or establish that a trusted CI job actually ran the claimed command.
+
+**Site caution:** a Forge `development` environment can be installed into a production Jira site. Treat test issue creation and evidence writes as production data unless the site itself is a dedicated development/test site.

@@ -16,18 +16,18 @@ Proofline accepts CI verification records through a Forge web trigger. Forge web
 
 ## Setup
 
-1. Install and authenticate the Forge CLI (`npm install --global @forge/cli`, then `forge login`).
-2. Register this existing repository as a Forge app with `forge register proofline` (the command writes the Atlassian app ID into `manifest.yml`).
-3. Run `forge lint`, then deploy with `forge deploy --environment development`.
-4. Install the deployed app into a development Jira site with `forge install --site <your-site>.atlassian.net --product jira --environment development`.
-5. In a Jira issue, open the Proofline panel as a Jira administrator with the ADMINISTER global permission and choose **Create signing secret** (or **Rotate signing secret**). Copy the value immediately.
-6. Generate the web trigger URL with `forge webtrigger create --functionKey github-actions-evidence` and select the Jira installation/environment.
-7. Add repository Actions secret `PROOFLINE_WEBHOOK_SECRET` and Actions variable `PROOFLINE_WEBTRIGGER_URL`.
-8. Copy `scripts/submit-proofline-evidence.mjs` into the trusted CI repository (or make it available in that workflow), then add the example evidence job and set `PROOFLINE_ISSUE_KEY` and `PROOFLINE_CRITERION_KEY`.
+1. Install and authenticate the Forge CLI, then register this existing app with `forge register proofline`.
+2. Run `forge lint`, then deploy with `forge deploy --environment development`.
+3. Install the deployed app into a Jira Cloud site with `forge install --site <your-site>.atlassian.net --product jira --environment development`. Prefer a dedicated test site. If testing on a production site, use a dedicated throwaway test issue and treat its data as production data.
+4. In that Jira issue, open the Proofline panel as a Jira administrator with the ADMINISTER global permission and choose **Create signing secret** (or **Rotate signing secret**). Copy the value immediately; it is shown only once.
+5. Generate the installation-specific web trigger URL with `forge webtrigger create --functionKey github-actions-evidence --site <your-site>.atlassian.net --product Jira --environment development`.
+6. Add repository Actions secret `PROOFLINE_WEBHOOK_SECRET` and Actions variable `PROOFLINE_WEBTRIGGER_URL`.
+7. Run the **Proofline evidence verification** workflow manually from the Actions tab. Supply the Jira issue key and a criterion key that is configured on that issue. The workflow runs `npm ci` and `npm test`, then submits `PASS` or `FAIL` evidence to Forge.
+8. Refresh the issue's Proofline panel and verify the evidence ID, source run ID, criterion, and derived verdict.
 
 ## Example workflow job
 
-The verification job is responsible for running checks. The evidence job runs even when verification fails so a failure is not silently omitted. Adapt the `needs` job and criterion key to the check being reported.
+The verification job is responsible for running checks. The evidence job runs even when verification fails so a failure is not silently omitted. Adapt the criterion key to the check being reported.
 
 ```yaml
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - run: npm ci
       - run: npm test
 
@@ -54,12 +54,11 @@ jobs:
           PROOFLINE_ISSUE_KEY: PAY-142
           PROOFLINE_CRITERION_KEY: unit-tests
           PROOFLINE_OUTCOME: ${{ needs.unit-tests.result == 'success' && 'PASS' || 'FAIL' }}
-          PROOFLINE_SUMMARY: Unit test job result from GitHub Actions
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: node scripts/submit-proofline-evidence.mjs
 ```
 
-The sample workflow must be copied into the CI repository that has access to the Proofline secret and the submit script. Do not make the secret available to pull requests from forks.
+The dedicated `proofline-evidence.yml` workflow uses `workflow_dispatch` so a test issue and criterion are selected explicitly. Keep the signing secret restricted to trusted workflows; do not expose it to pull requests from forks.
 
 ## Request format
 
