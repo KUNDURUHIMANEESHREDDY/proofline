@@ -68,8 +68,13 @@ export async function claimNonce(nonce, nowMs) {
 
 export async function saveEvidence(record) {
   const recordKey = evidenceKey(record.issueKey, record.evidenceId);
+  const serializedRecord = JSON.stringify(record);
   for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
-    if (await kvs.entity(EVIDENCE_ENTITY).get(recordKey)) throw new StoreConflictError('evidence ID already exists');
+    const existing = await kvs.entity(EVIDENCE_ENTITY).get(recordKey);
+    if (existing) {
+      if (existing.recordJson === serializedRecord) return;
+      throw new StoreConflictError('evidence ID already exists with different content');
+    }
     const state = await getOrCreateIssueState(record.issueKey);
     const currentSummary = JSON.parse(state.summaryJson);
     const byCriterion = { ...(currentSummary.byCriterion ?? {}) };
@@ -86,7 +91,7 @@ export async function saveEvidence(record) {
 
     try {
       await kvs.transact()
-        .set(recordKey, { recordJson: JSON.stringify(record) }, { entityName: EVIDENCE_ENTITY })
+        .set(recordKey, { recordJson: serializedRecord }, { entityName: EVIDENCE_ENTITY })
         .set(record.issueKey, {
           version: state.version + 1,
           summaryJson: JSON.stringify(nextSummary),
@@ -98,7 +103,11 @@ export async function saveEvidence(record) {
         .execute();
       return nextSummary;
     } catch (error) {
-      if (await kvs.entity(EVIDENCE_ENTITY).get(recordKey)) throw new StoreConflictError('evidence ID already exists');
+      const existingAfterConflict = await kvs.entity(EVIDENCE_ENTITY).get(recordKey);
+      if (existingAfterConflict) {
+        if (existingAfterConflict.recordJson === serializedRecord) return;
+        throw new StoreConflictError('evidence ID already exists with different content');
+      }
       const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(record.issueKey);
       if (latestState && latestState.version !== state.version) continue;
       if (!isConflict(error)) throw error;

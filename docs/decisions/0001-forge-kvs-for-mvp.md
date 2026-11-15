@@ -5,14 +5,14 @@
 
 ## Context
 
-Proofline needs per-installation isolation, per-issue policy reads, append-only evidence writes, duplicate rejection, nonce replay protection, and encrypted storage for the GitHub Actions HMAC secret. The first issue-panel workflow does not require relational joins or complex filtering.
+Proofline needs per-installation isolation, per-issue policy reads, append-only evidence writes, duplicate-ID protection, nonce replay protection, and encrypted storage for the GitHub Actions HMAC secret. The first issue-panel workflow does not require relational joins or complex filtering.
 
 ## Decision
 
 Use Forge hosted storage through `@forge/kvs`, combining basic KVS for nonce claims with versioned Custom Entity Store entities for issue state and evidence:
 
 - Nonce claims use basic KVS with `keyPolicy: FAIL_IF_EXISTS` and expire after ten minutes.
-- Evidence records and the per-issue state (criterion summary plus policy) are stored in two Custom Entity Store entities. Evidence keys include the Jira issue key and a SHA-256 digest of the evidence ID.
+- Evidence records and the per-issue state (criterion summary plus policy) are stored in two Custom Entity Store entities. Evidence keys include the Jira issue key and a SHA-256 digest of the evidence ID; exact retransmissions are idempotent, while conflicting reuse is rejected.
 - A single Custom Entity Store transaction writes each evidence record and conditionally increments the issue-state version. Policy updates use the same version condition. Concurrent evidence or policy writes that read the same version cannot both commit; losing writers reread and retry. This avoids a distributed lock and prevents lost updates.
 - The issue panel reads policy and criterion summary from one issue-state entity snapshot, so a policy change cannot be mixed with a summary read from another version.
 - The issue panel reads the issue state and latest 25 evidence records with `kvs.entity().get`; these point reads are strictly consistent. It does not derive verdicts from entity queries, because Custom Entity Store queries are eventually consistent.
