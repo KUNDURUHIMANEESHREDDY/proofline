@@ -40,3 +40,7 @@ A Jira issue has three required criteria: `build`, `unit-tests`, and `security-s
 ## Security note
 
 Schema validation checks payload shape only. It does not authenticate an evidence source, verify artifact contents, or authorize a record to affect a verdict. Those checks belong in the server-side ingestion and policy layers.
+
+## Reused foundations
+
+See [existing repository integration notes](docs/integrations/EXISTING_REPOSITORIES.md) for the source boundaries. The verdict engine is a JavaScript implementation of the No Presumed Pass contract. The MCP Inspector adapter exports only allowlisted, redacted operational observations; it cannot emit verification outcomes.
