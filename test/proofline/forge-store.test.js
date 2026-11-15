@@ -3,18 +3,6 @@ import assert from 'node:assert/strict';
 import { createForgeStore } from '../../src/proofline/forge-store.js';
 import { StoreConflictError } from '../../src/proofline/errors.js';
 
-class MemoryFilter {
-  constructor() { this.conditions = []; }
-  and(attribute, condition) {
-    this.conditions.push({ attribute, ...condition });
-    return this;
-  }
-}
-
-const memoryFilterConditions = {
-  equalTo: (value) => ({ operator: 'equalTo', value }),
-};
-
 function createMemoryKvs() {
   const entities = new Map();
   const values = new Map();
@@ -60,8 +48,8 @@ function createMemoryKvs() {
             const { conditions } = operation.options;
             if (!conditions) continue;
             const current = entityMap(operation.options.entityName).get(operation.key);
-            for (const condition of conditions.conditions) {
-              if (condition.operator === 'equalTo' && current?.[condition.attribute] !== condition.value) {
+            for (const condition of conditions.filters()) {
+              if (condition.condition === 'EQUAL_TO' && current?.[condition.property] !== condition.values[0]) {
                 throw Object.assign(new Error('transaction condition not met'), { status: 409 });
               }
             }
@@ -89,14 +77,10 @@ const record = (evidenceId, criterionKey, outcome = 'PASS') => ({
 });
 
 function makeStore() {
-  return createForgeStore({
-    storage: createMemoryKvs(),
-    FilterClass: MemoryFilter,
-    filterConditions: memoryFilterConditions,
-  });
+  return createForgeStore({ storage: createMemoryKvs() });
 }
 
-test('stores evidence and policy in one versioned issue state', async () => {
+test('stores evidence and policy in one versioned issue state using the Forge filter interface', async () => {
   const store = makeStore();
   await store.saveIssuePolicy('PAY-142', { requiredCriteria: ['build'], updatedAt: '2026-11-15T08:00:00Z' });
   await store.saveEvidence(record('e1', 'build'));

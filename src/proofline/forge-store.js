@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Filter, FilterConditions, kvs } from '@forge/kvs';
+import { kvs } from '@forge/kvs';
 import { StoreBusyError, StoreConflictError } from './errors.js';
 
 const SECRET_KEY = 'proofline:github-actions:hmac-secret:v1';
@@ -25,7 +25,16 @@ function emptySummary() {
   return { evidenceCount: 0, byCriterion: {}, latestEvidenceIds: [] };
 }
 
-export function createForgeStore({ storage = kvs, FilterClass = Filter, filterConditions = FilterConditions } = {}) {
+// Forge KVS transactions consume the Filter interface structurally. Avoid relying
+// on the SDK's re-exported Filter constructor in the Forge webpack runtime.
+function versionEqualsFilter(version) {
+  return {
+    filters: () => [{ property: 'version', condition: 'EQUAL_TO', values: [version] }],
+    operator: () => 'and',
+  };
+}
+
+export function createForgeStore({ storage = kvs } = {}) {
   async function getOrCreateIssueState(issueKey) {
     const entity = storage.entity(ISSUE_STATE_ENTITY);
     let state = await entity.get(issueKey);
@@ -99,7 +108,7 @@ export function createForgeStore({ storage = kvs, FilterClass = Filter, filterCo
             policyJson: state.policyJson,
           }, {
             entityName: ISSUE_STATE_ENTITY,
-            conditions: new FilterClass().and('version', filterConditions.equalTo(state.version)),
+            conditions: versionEqualsFilter(state.version),
           })
           .execute();
         return nextSummary;
@@ -143,7 +152,7 @@ export function createForgeStore({ storage = kvs, FilterClass = Filter, filterCo
             policyJson: JSON.stringify(policy),
           }, {
             entityName: ISSUE_STATE_ENTITY,
-            conditions: new FilterClass().and('version', filterConditions.equalTo(state.version)),
+            conditions: versionEqualsFilter(state.version),
           })
           .execute();
         return;
