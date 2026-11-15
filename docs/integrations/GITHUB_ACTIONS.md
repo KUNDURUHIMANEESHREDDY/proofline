@@ -8,7 +8,7 @@ Proofline accepts CI verification records through a Forge web trigger. Forge web
 - Copy the secret once into the GitHub repository's Actions secret named `PROOFLINE_WEBHOOK_SECRET`.
 - Store the Forge web trigger URL in the repository Actions variable `PROOFLINE_WEBTRIGGER_URL`.
 - The workflow signs the exact serialized JSON body using HMAC-SHA256 over `timestamp.nonce.body`.
-- The handler allows a five-minute clock skew, claims the nonce before writing evidence, and rejects duplicate evidence IDs. Nonces expire after ten minutes. The submitter retries temporary per-issue write-lock contention (HTTP 503) with a fresh nonce.
+- The handler allows a five-minute clock skew, claims the nonce before writing evidence, and rejects duplicate evidence IDs. Nonces expire after ten minutes. The submitter retries optimistic-concurrency contention (HTTP 503) with a fresh nonce.
 - Secret rotation keeps the previous secret valid for 15 minutes so the GitHub Actions secret can be updated without an immediate outage.
 - This authenticates possession of the shared secret. It is not a GitHub cryptographic workflow attestation. Protect the GitHub secret, restrict who can edit workflows, and only call the submit script from trusted workflows.
 - A caller with the secret can submit any allowed issue key, criterion, and outcome for this Forge installation. Restrict the secret to trusted repositories/workflows and do not expose it to fork pull requests or untrusted code.
@@ -18,12 +18,12 @@ Proofline accepts CI verification records through a Forge web trigger. Forge web
 
 1. Install and authenticate the Forge CLI (`npm install --global @forge/cli`, then `forge login`).
 2. Register this existing repository as a Forge app with `forge register proofline` (the command writes the Atlassian app ID into `manifest.yml`).
-3. Install the app into a development Jira site with `forge install --site <your-site>.atlassian.net --product jira --environment development`.
-4. Deploy with `forge deploy --environment development`.
+3. Run `forge lint`, then deploy with `forge deploy --environment development`.
+4. Install the deployed app into a development Jira site with `forge install --site <your-site>.atlassian.net --product jira --environment development`.
 5. In a Jira issue, open the Proofline panel as a Jira administrator with the ADMINISTER global permission and choose **Create signing secret** (or **Rotate signing secret**). Copy the value immediately.
 6. Generate the web trigger URL with `forge webtrigger create --functionKey github-actions-evidence` and select the Jira installation/environment.
 7. Add repository Actions secret `PROOFLINE_WEBHOOK_SECRET` and Actions variable `PROOFLINE_WEBTRIGGER_URL`.
-8. Add the example evidence job below to the trusted repository workflow and set `PROOFLINE_ISSUE_KEY` and `PROOFLINE_CRITERION_KEY`.
+8. Copy `scripts/submit-proofline-evidence.mjs` into the trusted CI repository (or make it available in that workflow), then add the example evidence job and set `PROOFLINE_ISSUE_KEY` and `PROOFLINE_CRITERION_KEY`.
 
 ## Example workflow job
 
