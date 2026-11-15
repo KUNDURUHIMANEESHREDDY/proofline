@@ -112,7 +112,11 @@ export async function getIssueEvidence(issueKey) {
   const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
   const values = await Promise.all(ids.map((id) => kvs.entity(EVIDENCE_ENTITY).get(evidenceKey(issueKey, id))));
   const records = values.filter(Boolean).map((value) => JSON.parse(value.recordJson));
-  return { summary, records, incomplete: records.length !== ids.length };
+  return {
+    summary,
+    records,
+    incomplete: records.length !== ids.length || ids.length !== Math.min(summary.evidenceCount ?? 0, LATEST_EVIDENCE_LIMIT),
+  };
 }
 
 export async function getIssuePolicy(issueKey) {

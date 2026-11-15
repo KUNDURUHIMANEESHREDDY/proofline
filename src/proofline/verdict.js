@@ -126,13 +126,20 @@ export function deriveVerdictFromSummary(requiredCriteria, summary) {
       source: 'github-actions', observedAt,
     });
   }
-  if (summary?.evidenceCount !== undefined && summary.evidenceCount !== summarizedEvidenceCount) {
+  const evidenceCount = summary?.evidenceCount ?? 0;
+  const latestEvidenceIds = summary?.latestEvidenceIds ?? [];
+  if (!Number.isInteger(evidenceCount) || evidenceCount < 0 || evidenceCount !== summarizedEvidenceCount) {
     throw new TypeError('evidence summary count does not match criterion totals');
+  }
+  if (!Array.isArray(latestEvidenceIds) || latestEvidenceIds.length !== Math.min(evidenceCount, 25) ||
+      latestEvidenceIds.some((id) => typeof id !== 'string' || !id.trim()) ||
+      new Set(latestEvidenceIds).size !== latestEvidenceIds.length) {
+    throw new TypeError('evidence summary latest IDs are inconsistent');
   }
   const verdict = deriveVerdict(requiredCriteria, evidence);
   return {
     ...verdict,
-    evidenceIds: Array.isArray(summary?.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, 25) : [],
-    evidenceIdCount: Number.isInteger(summary?.evidenceCount) ? summary.evidenceCount : 0,
+    evidenceIds: latestEvidenceIds.slice(0, 25),
+    evidenceIdCount: evidenceCount,
   };
 }

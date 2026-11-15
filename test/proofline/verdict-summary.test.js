@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { deriveVerdictFromSummary } from '../../src/proofline/verdict.js';
 
 const observedAt = '2026-11-15T08:00:00Z';
-const summary = (byCriterion, latestEvidenceIds = ['e1'], evidenceCount = undefined) => ({
-  byCriterion: Object.fromEntries(Object.entries(byCriterion).map(([key, counts]) => [key, { ...counts, lastObservedAt: observedAt }])),
-  latestEvidenceIds,
-  evidenceCount: evidenceCount ?? Object.values(byCriterion).reduce((sum, counts) => sum + counts.passCount + counts.failCount, 0),
-});
+const summary = (byCriterion, latestEvidenceIds = undefined, evidenceCount = undefined) => {
+  const count = evidenceCount ?? Object.values(byCriterion).reduce((sum, counts) => sum + counts.passCount + counts.failCount, 0);
+  return {
+    byCriterion: Object.fromEntries(Object.entries(byCriterion).map(([key, counts]) => [key, { ...counts, lastObservedAt: observedAt }])),
+    latestEvidenceIds: latestEvidenceIds ?? Array.from({ length: Math.min(count, 25) }, (_, index) => `e${index + 1}`),
+    evidenceCount: count,
+  };
+};
 
 test('summary derives PASS only when every required criterion has passing evidence', () => {
   assert.equal(deriveVerdictFromSummary(['build', 'unit-tests'], summary({
@@ -40,8 +43,9 @@ test('summary retains unmatched criteria and empty policy is never PASS', () => 
 });
 
 test('summary verdict exposes only bounded recent evidence IDs and total count', () => {
-  const result = deriveVerdictFromSummary(['build'], summary({ build: { passCount: 101, failCount: 0 } }, ['e1', 'e2'], 101));
-  assert.deepEqual(result.evidenceIds, ['e1', 'e2']);
+  const latestIds = Array.from({ length: 25 }, (_, index) => `e${index + 1}`);
+  const result = deriveVerdictFromSummary(['build'], summary({ build: { passCount: 101, failCount: 0 } }, latestIds, 101));
+  assert.deepEqual(result.evidenceIds, latestIds);
   assert.equal(result.evidenceIdCount, 101);
 });
 
@@ -49,4 +53,10 @@ test('rejects an inconsistent summary rather than deriving a verdict', () => {
   assert.throws(() => deriveVerdictFromSummary(['build'], summary({
     build: { passCount: 1, failCount: 0 },
   }, ['e1'], 2)), /summary count/);
+});
+
+test('rejects missing or duplicate recent evidence IDs in the summary', () => {
+  const counts = { build: { passCount: 2, failCount: 0 } };
+  assert.throws(() => deriveVerdictFromSummary(['build'], summary(counts, ['e1'], 2)), /latest IDs/);
+  assert.throws(() => deriveVerdictFromSummary(['build'], summary(counts, ['e1', 'e1'], 2)), /latest IDs/);
 });
