@@ -1,6 +1,6 @@
 import { MAX_BODY_BYTES, verifyProoflineRequest } from './github-actions-auth.js';
-import { StoreConflictError } from './errors.js';
-export { StoreConflictError } from './errors.js';
+import { StoreBusyError, StoreConflictError } from './errors.js';
+export { StoreBusyError, StoreConflictError } from './errors.js';
 
 const ALLOWED_FIELDS = new Set([
   'schemaVersion', 'recordType', 'evidenceId', 'issueKey', 'source', 'sourceRunId',
@@ -166,6 +166,7 @@ export async function handleGitHubActionsIngress(request, dependencies) {
     await dependencies.saveEvidence(record);
   } catch (error) {
     if (error instanceof StoreConflictError) return response(409, { error: 'duplicate_evidence' });
+    if (error instanceof StoreBusyError) return response(503, { error: 'temporarily_unavailable' });
     throw error;
   }
   return response(201, { accepted: true, evidenceId: record.evidenceId });

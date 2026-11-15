@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Deterministic three-valued verdict derivation.
  * Semantics are ported from the No Presumed Pass reference contract.
  * Evidence is supplied as normalized, already-authenticated records; this
@@ -101,5 +101,33 @@ export function deriveVerdict(requiredCriteria, evidence) {
     unmatchedCriteria,
     evidenceIds: relevant.map((record) => record.evidenceId).sort(),
     reason,
+  };
+}
+
+/** Derive the same verdict from the strongly-consistent per-issue summary. */
+export function deriveVerdictFromSummary(requiredCriteria, summary) {
+  const evidence = [];
+  const byCriterion = summary?.byCriterion && typeof summary.byCriterion === 'object'
+    ? summary.byCriterion : {};
+  for (const [criterion, stats] of Object.entries(byCriterion)) {
+    if (!stats || !Number.isInteger(stats.passCount) || stats.passCount < 0 ||
+        !Number.isInteger(stats.failCount) || stats.failCount < 0) {
+      throw new TypeError(`invalid evidence summary for criterion: ${criterion}`);
+    }
+    const observedAt = stats.lastObservedAt;
+    if (stats.passCount > 0) evidence.push({
+      evidenceId: `summary:${criterion}:pass`, criterion, outcome: EvidenceOutcome.PASS,
+      source: 'github-actions', observedAt,
+    });
+    if (stats.failCount > 0) evidence.push({
+      evidenceId: `summary:${criterion}:fail`, criterion, outcome: EvidenceOutcome.FAIL,
+      source: 'github-actions', observedAt,
+    });
+  }
+  const verdict = deriveVerdict(requiredCriteria, evidence);
+  return {
+    ...verdict,
+    evidenceIds: Array.isArray(summary?.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, 25) : [],
+    evidenceIdCount: Number.isInteger(summary?.evidenceCount) ? summary.evidenceCount : 0,
   };
 }

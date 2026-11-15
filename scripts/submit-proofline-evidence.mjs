@@ -14,8 +14,6 @@ if (!/^[a-z][a-z0-9._-]{0,63}$/.test(process.env.PROOFLINE_CRITERION_KEY)) throw
 const endpoint = new URL(process.env.PROOFLINE_WEBTRIGGER_URL);
 if (endpoint.protocol !== 'https:') throw new Error('PROOFLINE_WEBTRIGGER_URL must use HTTPS');
 
-const timestamp = String(Math.floor(Date.now() / 1000));
-const nonce = randomUUID();
 const jobKey = (process.env.GITHUB_JOB || process.env.PROOFLINE_CRITERION_KEY).slice(0, 80);
 const record = {
   schemaVersion: 1,
@@ -41,20 +39,31 @@ if (process.env.PROOFLINE_ARTIFACT_URI && process.env.PROOFLINE_ARTIFACT_SHA256)
     sha256: process.env.PROOFLINE_ARTIFACT_SHA256.toLowerCase(),
   };
 }
+
 const body = JSON.stringify(record);
-const signature = createHmac('sha256', process.env.PROOFLINE_WEBHOOK_SECRET)
-  .update(`${timestamp}.${nonce}.${body}`, 'utf8')
-  .digest('hex');
-const response = await fetch(process.env.PROOFLINE_WEBTRIGGER_URL, {
-  method: 'POST',
-  headers: {
-    'content-type': 'application/json',
-    'x-proofline-timestamp': timestamp,
-    'x-proofline-nonce': nonce,
-    'x-proofline-signature': `sha256=${signature}`,
-  },
-  body,
-});
-const responseText = await response.text();
-if (!response.ok) throw new Error(`Proofline rejected evidence (${response.status}): ${responseText}`);
-process.stdout.write(`${responseText}\n`);
+let responseText = '';
+for (let attempt = 0; attempt < 3; attempt += 1) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = randomUUID();
+  const signature = createHmac('sha256', process.env.PROOFLINE_WEBHOOK_SECRET)
+    .update(`${timestamp}.${nonce}.${body}`, 'utf8')
+    .digest('hex');
+  const response = await fetch(process.env.PROOFLINE_WEBTRIGGER_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-proofline-timestamp': timestamp,
+      'x-proofline-nonce': nonce,
+      'x-proofline-signature': `sha256=${signature}`,
+    },
+    body,
+  });
+  responseText = await response.text();
+  if (response.status === 503 && attempt < 2) {
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    continue;
+  }
+  if (!response.ok) throw new Error(`Proofline rejected evidence (${response.status}): ${responseText}`);
+  process.stdout.write(`${responseText}\n`);
+  break;
+}

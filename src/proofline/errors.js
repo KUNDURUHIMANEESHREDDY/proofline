@@ -4,3 +4,10 @@ export class StoreConflictError extends Error {
     this.name = 'StoreConflictError';
   }
 }
+
+export class StoreBusyError extends Error {
+  constructor(message = 'store is temporarily busy') {
+    super(message);
+    this.name = 'StoreBusyError';
+  }
+}

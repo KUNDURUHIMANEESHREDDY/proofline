@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { signProoflineRequest } from '../../src/proofline/github-actions-auth.js';
-import { handleGitHubActionsIngress, StoreConflictError, parseJsonWithoutDuplicateKeys } from '../../src/proofline/github-actions-ingress.js';
+import { handleGitHubActionsIngress, StoreBusyError, StoreConflictError, parseJsonWithoutDuplicateKeys } from '../../src/proofline/github-actions-ingress.js';
 
 const secret = 'c'.repeat(43);
 const nowMs = 1_800_000_000_000;
@@ -68,4 +68,11 @@ test('rejects non-POST requests and malformed evidence', async () => {
   assert.equal((await handleGitHubActionsIngress({ method: 'GET' }, deps)).statusCode, 405);
   const bad = { ...record, outcome: 'MAYBE' };
   assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(bad) }), deps)).statusCode, 400);
+});
+
+test('returns retryable 503 when per-issue storage lock is busy', async () => {
+  const deps = dependencies();
+  deps.saveEvidence = async () => { throw new StoreBusyError(); };
+  const result = await handleGitHubActionsIngress(signedRequest(), deps);
+  assert.equal(result.statusCode, 503);
 });
