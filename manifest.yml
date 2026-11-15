@@ -23,13 +23,41 @@ modules:
         function: proofline-resolver
       render: native
       title: Proofline
-      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
   webtrigger:
     - key: github-actions-evidence
       function: github-actions-ingress
       urlFormat: v2
       response:
-        type: dynamic
+        type: static
+        outputs:
+          - key: accepted
+            statusCode: 201
+            contentType: application/json
+            body: '{"accepted":true}'
+          - key: method-not-allowed
+            statusCode: 405
+            contentType: application/json
+            body: '{"error":"method_not_allowed"}'
+          - key: payload-too-large
+            statusCode: 413
+            contentType: application/json
+            body: '{"error":"payload_too_large_or_missing"}'
+          - key: unauthorized
+            statusCode: 401
+            contentType: application/json
+            body: '{"error":"unauthorized"}'
+          - key: invalid-request
+            statusCode: 400
+            contentType: application/json
+            body: '{"error":"invalid_request"}'
+          - key: conflict
+            statusCode: 409
+            contentType: application/json
+            body: '{"error":"conflict"}'
+          - key: temporarily-unavailable
+            statusCode: 503
+            contentType: application/json
+            body: '{"error":"temporarily_unavailable"}'
   function:
     - key: proofline-resolver
       handler: index.handler

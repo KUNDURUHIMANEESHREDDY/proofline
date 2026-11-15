@@ -8,11 +8,11 @@ Proofline accepts CI verification records through a Forge web trigger. Forge web
 - Copy the secret once into the GitHub repository's Actions secret named `PROOFLINE_WEBHOOK_SECRET`.
 - Store the Forge web trigger URL in the repository Actions variable `PROOFLINE_WEBTRIGGER_URL`.
 - The workflow signs the exact serialized JSON body using HMAC-SHA256 over `timestamp.nonce.body`.
-- The handler allows a five-minute clock skew, claims the nonce before writing evidence, and rejects duplicate evidence IDs. Nonces expire after ten minutes. The submitter retries optimistic-concurrency contention (HTTP 503) with a fresh nonce.
+- The handler allows a five-minute clock skew, claims the nonce before writing evidence, and rejects duplicate evidence IDs. Nonces expire after ten minutes. The submitter retries optimistic-concurrency contention (HTTP 503) with a fresh nonce. Static response outputs intentionally return generic error bodies rather than detailed validation internals.
 - Secret rotation keeps the previous secret valid for 15 minutes so the GitHub Actions secret can be updated without an immediate outage.
 - This authenticates possession of the shared secret. It is not a GitHub cryptographic workflow attestation. Protect the GitHub secret, restrict who can edit workflows, and only call the submit script from trusted workflows.
 - A caller with the secret can submit any allowed issue key, criterion, and outcome for this Forge installation. Restrict the secret to trusted repositories/workflows and do not expose it to fork pull requests or untrusted code.
-- Evidence and the strongly-consistent per-issue verdict summary are committed atomically. The trigger uses Forge's `dynamic` response mode so it can return accurate HTTP status codes. Atlassian documents only static web triggers as eligible for the Runs on Atlassian program; this implementation therefore does not currently meet that eligibility condition.
+- Evidence and the strongly-consistent per-issue verdict summary are committed atomically. The trigger uses configured static response outputs, so it can return the required HTTP status codes without a dynamic response. Static web triggers are compatible with Runs on Atlassian eligibility; verify the complete app with `forge eligibility` after deployment.
 
 ## Setup
 

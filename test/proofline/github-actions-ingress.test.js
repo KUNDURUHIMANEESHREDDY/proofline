@@ -41,20 +41,20 @@ function dependencies() {
 test('accepts signed valid evidence and stores both nonce and record', async () => {
   const deps = dependencies();
   const result = await handleGitHubActionsIngress(signedRequest(), deps);
-  assert.equal(result.statusCode, 201);
+  assert.equal(result.outputKey, 'accepted');
   assert.equal(deps.evidence.has(record.evidenceId), true);
 });
 
 test('rejects unauthenticated, duplicate nonce, duplicate evidence and unknown fields', async () => {
   const deps = dependencies();
   const request = signedRequest();
-  assert.equal((await handleGitHubActionsIngress({ ...request, headers: {} }, deps)).statusCode, 401);
-  assert.equal((await handleGitHubActionsIngress(request, deps)).statusCode, 201);
-  assert.equal((await handleGitHubActionsIngress(request, deps)).statusCode, 409);
+  assert.equal((await handleGitHubActionsIngress({ ...request, headers: {} }, deps)).outputKey, 'unauthorized');
+  assert.equal((await handleGitHubActionsIngress(request, deps)).outputKey, 'accepted');
+  assert.equal((await handleGitHubActionsIngress(request, deps)).outputKey, 'conflict');
   const duplicateEvidence = signedRequest({ nonce: '32345678-1234-4234-8234-123456789012' });
-  assert.equal((await handleGitHubActionsIngress(duplicateEvidence, deps)).statusCode, 409);
+  assert.equal((await handleGitHubActionsIngress(duplicateEvidence, deps)).outputKey, 'conflict');
   const unknown = { ...record, prompt: 'must not be accepted' };
-  assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(unknown), nonce: '22345678-1234-4234-8234-123456789012' }), deps)).statusCode, 400);
+  assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(unknown), nonce: '22345678-1234-4234-8234-123456789012' }), deps)).outputKey, 'invalid-request');
 });
 
 test('rejects duplicate JSON keys including nested duplicates', () => {
@@ -65,14 +65,14 @@ test('rejects duplicate JSON keys including nested duplicates', () => {
 
 test('rejects non-POST requests and malformed evidence', async () => {
   const deps = dependencies();
-  assert.equal((await handleGitHubActionsIngress({ method: 'GET' }, deps)).statusCode, 405);
+  assert.equal((await handleGitHubActionsIngress({ method: 'GET' }, deps)).outputKey, 'method-not-allowed');
   const bad = { ...record, outcome: 'MAYBE' };
-  assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(bad) }), deps)).statusCode, 400);
+  assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(bad) }), deps)).outputKey, 'invalid-request');
 });
 
 test('returns retryable 503 when optimistic concurrency retries are exhausted', async () => {
   const deps = dependencies();
   deps.saveEvidence = async () => { throw new StoreBusyError(); };
   const result = await handleGitHubActionsIngress(signedRequest(), deps);
-  assert.equal(result.statusCode, 503);
+  assert.equal(result.outputKey, 'temporarily-unavailable');
 });

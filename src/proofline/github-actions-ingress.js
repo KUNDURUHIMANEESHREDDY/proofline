@@ -132,15 +132,15 @@ export function validateGitHubActionsEvidence(record, nowMs = Date.now()) {
   return null;
 }
 
-function response(statusCode, payload) {
-  return { statusCode, headers: { 'Content-Type': ['application/json'] }, body: JSON.stringify(payload) };
+function response(outputKey) {
+  return { outputKey };
 }
 
 export async function handleGitHubActionsIngress(request, dependencies) {
   const nowMs = dependencies.nowMs ?? Date.now();
-  if (request?.method !== 'POST') return response(405, { error: 'method_not_allowed' });
+  if (request?.method !== 'POST') return response('method-not-allowed');
   if (typeof request.body !== 'string' || Buffer.byteLength(request.body, 'utf8') > MAX_BODY_BYTES) {
-    return response(413, { error: 'payload_too_large_or_missing' });
+    return response('payload-too-large');
   }
   const headers = parseHeaders(request.headers);
   const timestamp = oneHeader(headers, 'x-proofline-timestamp');
@@ -148,26 +148,26 @@ export async function handleGitHubActionsIngress(request, dependencies) {
   const signature = oneHeader(headers, 'x-proofline-signature');
   const secretState = await dependencies.getSecretState();
   const auth = verifyProoflineRequest({ secretState, timestamp, nonce, signature, body: request.body, nowMs });
-  if (!auth.valid) return response(401, { error: 'unauthorized' });
+  if (!auth.valid) return response('unauthorized');
 
   let record;
   try { record = parseJsonWithoutDuplicateKeys(request.body); }
-  catch { return response(400, { error: 'invalid_json' }); }
+  catch { return response('invalid-request'); }
   const validationError = validateGitHubActionsEvidence(record, nowMs);
-  if (validationError) return response(400, { error: 'invalid_evidence', reason: validationError });
+  if (validationError) return response('invalid-request');
 
   try {
     await dependencies.claimNonce(nonce, nowMs);
   } catch (error) {
-    if (error instanceof StoreConflictError) return response(409, { error: 'replay_detected' });
+    if (error instanceof StoreConflictError) return response('conflict');
     throw error;
   }
   try {
     await dependencies.saveEvidence(record);
   } catch (error) {
-    if (error instanceof StoreConflictError) return response(409, { error: 'duplicate_evidence' });
-    if (error instanceof StoreBusyError) return response(503, { error: 'temporarily_unavailable' });
+    if (error instanceof StoreConflictError) return response('conflict');
+    if (error instanceof StoreBusyError) return response('temporarily-unavailable');
     throw error;
   }
-  return response(201, { accepted: true, evidenceId: record.evidenceId });
+  return response('accepted');
 }
