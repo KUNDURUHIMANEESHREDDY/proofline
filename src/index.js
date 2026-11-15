@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { deriveVerdictFromSummary } from './proofline/verdict.js';
 import { handleGitHubActionsIngress } from './proofline/github-actions-ingress.js';
 import {
-  claimNonce, getIssueEvidence, getIssuePolicy, getSecretState,
+  claimNonce, getIssueEvidence, getSecretState,
   saveEvidence, saveIssuePolicy, saveSecretState,
 } from './proofline/forge-store.js';
 
@@ -36,10 +36,8 @@ const resolver = new Resolver();
 
 resolver.define('getPassport', async ({ context }) => {
   const { issueKey } = issueContext(context);
-  const [policy, evidenceResult] = await Promise.all([
-    getIssuePolicy(issueKey),
-    getIssueEvidence(issueKey),
-  ]);
+  const evidenceResult = await getIssueEvidence(issueKey);
+  const policy = evidenceResult.policy;
   const evidence = evidenceResult.records.filter((record) => record.recordType === 'verification');
   const summary = evidenceResult.summary;
   const verdict = evidenceResult.incomplete
@@ -58,10 +56,10 @@ resolver.define('saveCriteria', async ({ payload, context }) => {
   const { issueKey, issueId } = issueContext(context);
   await requireIssueEdit(issueId);
   const criteria = payload?.criteria;
-  if (!Array.isArray(criteria) || criteria.length < 1 || criteria.length > 20 ||
+  if (!Array.isArray(criteria) || criteria.length > 20 ||
       criteria.some((criterion) => typeof criterion !== 'string' || !CRITERION_PATTERN.test(criterion)) ||
       new Set(criteria).size !== criteria.length) {
-    throw new Error('Criteria must contain 1–20 unique lowercase keys (letters, numbers, dot, underscore, hyphen)');
+    throw new Error('Criteria must contain 0–20 unique lowercase keys (letters, numbers, dot, underscore, hyphen)');
   }
   await saveIssuePolicy(issueKey, { requiredCriteria: criteria, updatedAt: new Date().toISOString() });
   return { saved: true };

@@ -11,6 +11,8 @@ app:
             type: integer
           summaryJson:
             type: string
+          policyJson:
+            type: string
       - name: proofline-evidence
         attributes:
           recordJson:

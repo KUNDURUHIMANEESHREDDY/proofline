@@ -8,7 +8,7 @@ import { invoke } from '@forge/bridge';
 function App() {
   const context = useProductContext();
   const [passport, setPassport] = useState(null);
-  const [criteriaInput, setCriteriaInput] = useState('build, unit-tests, security-scan');
+  const [criteriaInput, setCriteriaInput] = useState('');
   const [webhookConfigured, setWebhookConfigured] = useState(false);
   const [canManageWebhook, setCanManageWebhook] = useState(false);
   const [secret, setSecret] = useState('');
@@ -22,7 +22,7 @@ function App() {
     try {
       const data = await invoke('getPassport');
       setPassport(data);
-      setCriteriaInput((data.requiredCriteria ?? []).length ? data.requiredCriteria.join(', ') : 'build, unit-tests, security-scan');
+      setCriteriaInput((data.requiredCriteria ?? []).join(', '));
     } catch (error) {
       setMessage(error?.message ?? 'Unable to load the Evidence Passport');
     } finally { setBusy(false); }
@@ -78,15 +78,15 @@ function App() {
         {passport?.verdict?.missingCriteria?.length > 0 && <Text>Missing: {passport.verdict.missingCriteria.join(', ')}</Text>}
         {passport?.verdict?.failedCriteria?.length > 0 && <Text>Failed: {passport.verdict.failedCriteria.join(', ')}</Text>}
         {passport?.verdict?.unmatchedCriteria?.length > 0 && <Text>Unmatched: {passport.verdict.unmatchedCriteria.join(', ')}</Text>}
-        {passport?.evidenceTruncated && <SectionMessage appearance="warning"><Text>Evidence history exceeded the read limit. Proofline will not report PASS from a partial history.</Text></SectionMessage>}
         <Heading size="small">Required criteria</Heading>
         <Label labelFor="proofline-criteria">Comma-separated criterion keys</Label>
-        <Textfield id="proofline-criteria" value={criteriaInput} onChange={(event) => setCriteriaInput(event.target.value)} />
+        <Textfield id="proofline-criteria" placeholder="build, unit-tests, security-scan" value={criteriaInput} onChange={(event) => setCriteriaInput(event.target.value)} />
+        <Text>Leave this field empty to clear the policy; an empty policy remains INDETERMINATE.</Text>
         <Inline>
           <Button appearance="primary" onClick={saveCriteria} isDisabled={busy}>Save criteria</Button>
           <Button onClick={refresh} isDisabled={busy}>Refresh</Button>
         </Inline>
-        <Heading size="small">Evidence ({passport?.evidenceCount ?? 0}{passport?.evidenceTruncated ? ' +' : ''})</Heading>
+        <Heading size="small">Evidence ({passport?.evidenceCount ?? 0})</Heading>
         {passport?.evidence?.length ? passport.evidence.map((item) => (
           <Box key={item.evidenceId} padding="space.100">
             <Stack space="space.050">

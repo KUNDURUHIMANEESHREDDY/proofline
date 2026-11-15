@@ -7,9 +7,9 @@ Proofline gives each Jira issue an evidence-backed completion status. It does no
 ## Current implementation
 
 - Forge Jira issue panel (UI Kit).
-- Per-issue required-criteria policy.
-- Per-installation Forge KVS storage for evidence and policies.
-- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue version-checked atomic transactions, and duplicate evidence rejection. The trigger uses static response outputs to preserve Runs on Atlassian eligibility.
+- Per-issue required-criteria policy, versioned atomically with the evidence summary.
+- Per-installation Forge hosted storage: Custom Entity Store for evidence and issue state, KVS for nonce claims, and Secret Store for signing keys.
+- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue version-checked atomic transactions, and duplicate evidence rejection. The trigger uses static response outputs to keep Runs on Atlassian eligibility possible.
 - Encrypted Forge KVS Secret Store for the webhook signing key, with a 15-minute rotation overlap.
 - Deterministic `PASS`, `FAIL`, and `INDETERMINATE` verdict derivation.
 - MCP Inspector operational observation adapter; observations cannot satisfy verification criteria.

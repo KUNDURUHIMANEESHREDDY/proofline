@@ -29,18 +29,18 @@ async function getOrCreateIssueState(issueKey) {
   const entity = kvs.entity(ISSUE_STATE_ENTITY);
   let state = await entity.get(issueKey);
   if (state) {
-    if (!Number.isInteger(state.version) || typeof state.summaryJson !== 'string') {
+    if (!Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
       throw new Error('Stored Proofline issue state is invalid');
     }
     return state;
   }
   try {
-    await entity.set(issueKey, { version: 0, summaryJson: JSON.stringify(emptySummary()) }, { keyPolicy: 'FAIL_IF_EXISTS' });
+    await entity.set(issueKey, { version: 0, summaryJson: JSON.stringify(emptySummary()), policyJson: JSON.stringify({ requiredCriteria: [] }) }, { keyPolicy: 'FAIL_IF_EXISTS' });
   } catch (error) {
     if (!isConflict(error)) throw error;
   }
   state = await entity.get(issueKey);
-  if (!state || !Number.isInteger(state.version) || typeof state.summaryJson !== 'string') {
+  if (!state || !Number.isInteger(state.version) || typeof state.summaryJson !== 'string' || typeof state.policyJson !== 'string') {
     throw new Error('Unable to initialize Proofline issue state');
   }
   return state;
@@ -90,6 +90,7 @@ export async function saveEvidence(record) {
         .set(record.issueKey, {
           version: state.version + 1,
           summaryJson: JSON.stringify(nextSummary),
+          policyJson: state.policyJson,
         }, {
           entityName: ISSUE_STATE_ENTITY,
           conditions: new Filter().and('version', FilterConditions.equalTo(state.version)),
@@ -109,20 +110,38 @@ export async function saveEvidence(record) {
 export async function getIssueEvidence(issueKey) {
   const state = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
   const summary = state ? JSON.parse(state.summaryJson) : emptySummary();
+  const policy = state ? JSON.parse(state.policyJson) : { requiredCriteria: [] };
   const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
   const values = await Promise.all(ids.map((id) => kvs.entity(EVIDENCE_ENTITY).get(evidenceKey(issueKey, id))));
   const records = values.filter(Boolean).map((value) => JSON.parse(value.recordJson));
   return {
     summary,
+    policy,
     records,
     incomplete: records.length !== ids.length || ids.length !== Math.min(summary.evidenceCount ?? 0, LATEST_EVIDENCE_LIMIT),
   };
 }
 
-export async function getIssuePolicy(issueKey) {
-  return (await kvs.get(`proofline:policy:${issueKey}`)) ?? { requiredCriteria: [] };
-}
-
 export async function saveIssuePolicy(issueKey, policy) {
-  await kvs.set(`proofline:policy:${issueKey}`, policy, { keyPolicy: 'OVERRIDE' });
+  for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
+    const state = await getOrCreateIssueState(issueKey);
+    try {
+      await kvs.transact()
+        .set(issueKey, {
+          version: state.version + 1,
+          summaryJson: state.summaryJson,
+          policyJson: JSON.stringify(policy),
+        }, {
+          entityName: ISSUE_STATE_ENTITY,
+          conditions: new Filter().and('version', FilterConditions.equalTo(state.version)),
+        })
+        .execute();
+      return;
+    } catch (error) {
+      const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
+      if (latestState && latestState.version !== state.version) continue;
+      if (!isConflict(error)) throw error;
+    }
+  }
+  throw new StoreBusyError('concurrent policy updates did not settle after optimistic retries');
 }
