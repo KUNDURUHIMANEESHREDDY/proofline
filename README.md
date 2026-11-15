@@ -22,7 +22,7 @@ The Forge app is scaffolded but has not yet been registered, deployed, or instal
 - Verdicts are deterministic: `PASS`, `FAIL`, or `INDETERMINATE`.
 - CI is authoritative for build, test, and security outcomes.
 - MCP operational telemetry is distinct from verification evidence.
-- Evidence records preserve provenance and use fail-if-exists writes; this is application-level append-only behavior, not cryptographic immutability.
+- Evidence records preserve provenance and use per-issue serialized atomic writes with duplicate-ID checks; this is application-level append-only behavior, not cryptographic immutability.
 - Model-generated claims never directly set a verdict.
 
 ## Repository layout

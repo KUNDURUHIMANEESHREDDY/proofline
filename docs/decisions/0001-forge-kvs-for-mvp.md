@@ -21,7 +21,7 @@ Use `@forge/kvs` for the MVP:
 
 ## Consequences
 
-- This is an appropriate MVP choice for key-based append and prefix-query patterns; it is not a claim that KVS is the final long-term data model.
+- This is an appropriate MVP choice for key-based append, strongly-consistent point reads, and bounded summary reads; it is not a claim that KVS is the final long-term data model.
 - The panel shows the latest 25 evidence records while the compact criterion summary retains the counts needed for deterministic verdicts. Full historical browsing can be added separately; it must not use eventually consistent query results to derive PASS.
 - If issue-level evidence volume, reporting, or cross-record query needs exceed this model, revisit Forge SQL or Custom Entity Store with measured data and quota evidence.
 - `FAIL_IF_EXISTS` gives application-level append-only behavior, not cryptographic immutability against app administrators or platform operators.

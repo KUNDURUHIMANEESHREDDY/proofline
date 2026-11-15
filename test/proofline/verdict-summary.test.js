@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { deriveVerdictFromSummary } from '../../src/proofline/verdict.js';
 
 const observedAt = '2026-11-15T08:00:00Z';
-const summary = (byCriterion, latestEvidenceIds = ['e1'], evidenceCount = 1) => ({
+const summary = (byCriterion, latestEvidenceIds = ['e1'], evidenceCount = undefined) => ({
   byCriterion: Object.fromEntries(Object.entries(byCriterion).map(([key, counts]) => [key, { ...counts, lastObservedAt: observedAt }])),
   latestEvidenceIds,
-  evidenceCount,
+  evidenceCount: evidenceCount ?? Object.values(byCriterion).reduce((sum, counts) => sum + counts.passCount + counts.failCount, 0),
 });
 
 test('summary derives PASS only when every required criterion has passing evidence', () => {
@@ -40,7 +40,13 @@ test('summary retains unmatched criteria and empty policy is never PASS', () => 
 });
 
 test('summary verdict exposes only bounded recent evidence IDs and total count', () => {
-  const result = deriveVerdictFromSummary(['build'], summary({ build: { passCount: 1, failCount: 0 } }, ['e1', 'e2'], 101));
+  const result = deriveVerdictFromSummary(['build'], summary({ build: { passCount: 101, failCount: 0 } }, ['e1', 'e2'], 101));
   assert.deepEqual(result.evidenceIds, ['e1', 'e2']);
   assert.equal(result.evidenceIdCount, 101);
+});
+
+test('rejects an inconsistent summary rather than deriving a verdict', () => {
+  assert.throws(() => deriveVerdictFromSummary(['build'], summary({
+    build: { passCount: 1, failCount: 0 },
+  }, ['e1'], 2)), /summary count/);
 });

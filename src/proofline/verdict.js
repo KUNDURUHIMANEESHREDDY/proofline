@@ -107,13 +107,15 @@ export function deriveVerdict(requiredCriteria, evidence) {
 /** Derive the same verdict from the strongly-consistent per-issue summary. */
 export function deriveVerdictFromSummary(requiredCriteria, summary) {
   const evidence = [];
-  const byCriterion = summary?.byCriterion && typeof summary.byCriterion === 'object'
+  const byCriterion = summary?.byCriterion && typeof summary.byCriterion === 'object' && !Array.isArray(summary.byCriterion)
     ? summary.byCriterion : {};
+  let summarizedEvidenceCount = 0;
   for (const [criterion, stats] of Object.entries(byCriterion)) {
     if (!stats || !Number.isInteger(stats.passCount) || stats.passCount < 0 ||
         !Number.isInteger(stats.failCount) || stats.failCount < 0) {
       throw new TypeError(`invalid evidence summary for criterion: ${criterion}`);
     }
+    summarizedEvidenceCount += stats.passCount + stats.failCount;
     const observedAt = stats.lastObservedAt;
     if (stats.passCount > 0) evidence.push({
       evidenceId: `summary:${criterion}:pass`, criterion, outcome: EvidenceOutcome.PASS,
@@ -123,6 +125,9 @@ export function deriveVerdictFromSummary(requiredCriteria, summary) {
       evidenceId: `summary:${criterion}:fail`, criterion, outcome: EvidenceOutcome.FAIL,
       source: 'github-actions', observedAt,
     });
+  }
+  if (summary?.evidenceCount !== undefined && summary.evidenceCount !== summarizedEvidenceCount) {
+    throw new TypeError('evidence summary count does not match criterion totals');
   }
   const verdict = deriveVerdict(requiredCriteria, evidence);
   return {
