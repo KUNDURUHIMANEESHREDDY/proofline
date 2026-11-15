@@ -1,17 +1,18 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { kvs } from '@forge/kvs';
+import { createHash } from 'node:crypto';
+import { Filter, FilterConditions, kvs } from '@forge/kvs';
 import { StoreBusyError, StoreConflictError } from './errors.js';
 
 const SECRET_KEY = 'proofline:github-actions:hmac-secret:v1';
 const NONCE_TTL_MINUTES = 10;
-const ISSUE_LOCK_TTL_SECONDS = 60;
+const ISSUE_STATE_ENTITY = 'proofline-issue-state';
 const LATEST_EVIDENCE_LIMIT = 25;
+const MAX_OPTIMISTIC_RETRIES = 8;
 
 function isConflict(error) {
   const status = error?.status ?? error?.statusCode ?? error?.response?.status;
   const code = error?.code ?? error?.error?.code ?? '';
   const message = error?.message ?? error?.error?.message ?? error;
-  return status === 409 || /conflict|already exists|fail_if_exists/i.test(`${code} ${message}`);
+  return status === 409 || /conflict|condition.*(failed|not met)|version.*(changed|mismatch)/i.test(`${code} ${message}`);
 }
 
 function evidenceKey(issueKey, evidenceId) {
@@ -19,8 +20,29 @@ function evidenceKey(issueKey, evidenceId) {
   return `proofline:evidence:${issueKey}:${digest}`;
 }
 
-function summaryKey(issueKey) {
-  return `proofline:issue-summary:${issueKey}`;
+function emptySummary() {
+  return { evidenceCount: 0, byCriterion: {}, latestEvidenceIds: [] };
+}
+
+async function getOrCreateIssueState(issueKey) {
+  const entity = kvs.entity(ISSUE_STATE_ENTITY);
+  let state = await entity.get(issueKey);
+  if (state) {
+    if (!Number.isInteger(state.version) || typeof state.summaryJson !== 'string') {
+      throw new Error('Stored Proofline issue state is invalid');
+    }
+    return state;
+  }
+  try {
+    await entity.set(issueKey, { version: 0, summaryJson: JSON.stringify(emptySummary()) }, { keyPolicy: 'FAIL_IF_EXISTS' });
+  } catch (error) {
+    if (!isConflict(error)) throw error;
+  }
+  state = await entity.get(issueKey);
+  if (!state || !Number.isInteger(state.version) || typeof state.summaryJson !== 'string') {
+    throw new Error('Unable to initialize Proofline issue state');
+  }
+  return state;
 }
 
 export async function getSecretState() {
@@ -44,63 +66,51 @@ export async function claimNonce(nonce, nowMs) {
 }
 
 export async function saveEvidence(record) {
-  const lockKey = `proofline:issue-lock:${record.issueKey}`;
-  const lockToken = randomUUID();
-  try {
-    await kvs.set(lockKey, { token: lockToken, acquiredAt: new Date().toISOString() }, {
-      keyPolicy: 'FAIL_IF_EXISTS',
-      ttl: { unit: 'SECONDS', value: ISSUE_LOCK_TTL_SECONDS },
-    });
-  } catch (error) {
-    if (isConflict(error)) throw new StoreBusyError('another evidence write is in progress for this issue');
-    throw error;
-  }
-
-  try {
-    const recordKey = evidenceKey(record.issueKey, record.evidenceId);
+  const recordKey = evidenceKey(record.issueKey, record.evidenceId);
+  for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
     if (await kvs.get(recordKey)) throw new StoreConflictError('evidence ID already exists');
-
-    const current = await kvs.get(summaryKey(record.issueKey)) ?? {
-      evidenceCount: 0,
-      byCriterion: {},
-      latestEvidenceIds: [],
-    };
-    const byCriterion = { ...(current.byCriterion ?? {}) };
+    const state = await getOrCreateIssueState(record.issueKey);
+    const currentSummary = JSON.parse(state.summaryJson);
+    const byCriterion = { ...(currentSummary.byCriterion ?? {}) };
     const stats = { ...(byCriterion[record.criterionKey] ?? { passCount: 0, failCount: 0 }) };
     if (record.outcome === 'PASS') stats.passCount += 1;
     else stats.failCount += 1;
     stats.lastObservedAt = record.observedAt;
     byCriterion[record.criterionKey] = stats;
-    const summary = {
-      evidenceCount: (current.evidenceCount ?? 0) + 1,
+    const nextSummary = {
+      evidenceCount: (currentSummary.evidenceCount ?? 0) + 1,
       byCriterion,
-      latestEvidenceIds: [record.evidenceId, ...(current.latestEvidenceIds ?? [])].slice(0, LATEST_EVIDENCE_LIMIT),
-      updatedAt: new Date().toISOString(),
+      latestEvidenceIds: [record.evidenceId, ...(currentSummary.latestEvidenceIds ?? [])].slice(0, LATEST_EVIDENCE_LIMIT),
     };
 
-    await kvs.transact()
-      .set(recordKey, record)
-      .set(summaryKey(record.issueKey), summary)
-      .execute();
-    return summary;
-  } finally {
-    // The lease expires automatically if the invocation terminates unexpectedly.
     try {
-      const currentLock = await kvs.get(lockKey);
-      if (currentLock?.token === lockToken) await kvs.delete(lockKey);
-    } catch { /* Preserve the primary operation result; the lock has a TTL. */ }
+      await kvs.transact()
+        .set(recordKey, record)
+        .set(record.issueKey, {
+          version: state.version + 1,
+          summaryJson: JSON.stringify(nextSummary),
+        }, {
+          entityName: ISSUE_STATE_ENTITY,
+          conditions: new Filter().and('version', FilterConditions.equalTo(state.version)),
+        })
+        .execute();
+      return nextSummary;
+    } catch (error) {
+      if (await kvs.get(recordKey)) throw new StoreConflictError('evidence ID already exists');
+      const latestState = await kvs.entity(ISSUE_STATE_ENTITY).get(record.issueKey);
+      if (latestState && latestState.version !== state.version) continue;
+      if (!isConflict(error)) throw error;
+    }
   }
+  throw new StoreBusyError('concurrent evidence updates did not settle after optimistic retries');
 }
 
 export async function getIssueEvidence(issueKey) {
-  const summary = await kvs.get(summaryKey(issueKey)) ?? {
-    evidenceCount: 0,
-    byCriterion: {},
-    latestEvidenceIds: [],
-  };
+  const state = await kvs.entity(ISSUE_STATE_ENTITY).get(issueKey);
+  const summary = state ? JSON.parse(state.summaryJson) : emptySummary();
   const ids = Array.isArray(summary.latestEvidenceIds) ? summary.latestEvidenceIds.slice(0, LATEST_EVIDENCE_LIMIT) : [];
   const records = (await Promise.all(ids.map((id) => kvs.get(evidenceKey(issueKey, id))))).filter(Boolean);
-  return { summary, records };
+  return { summary, records, incomplete: records.length !== ids.length };
 }
 
 export async function getIssuePolicy(issueKey) {

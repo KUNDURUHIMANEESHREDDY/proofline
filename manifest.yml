@@ -3,6 +3,14 @@ app:
   runtime:
     name: nodejs24.x
     memoryMB: 512
+  storage:
+    entities:
+      - name: proofline-issue-state
+        attributes:
+          version:
+            type: integer
+          summaryJson:
+            type: string
 modules:
   jira:issuePanel:
     - key: proofline-issue-panel

@@ -42,7 +42,9 @@ resolver.define('getPassport', async ({ context }) => {
   ]);
   const evidence = evidenceResult.records.filter((record) => record.recordType === 'verification');
   const summary = evidenceResult.summary;
-  const verdict = deriveVerdictFromSummary(policy.requiredCriteria ?? [], summary);
+  const verdict = evidenceResult.incomplete
+    ? { status: 'INDETERMINATE', reason: 'evidence_record_missing', requiredCriteria: policy.requiredCriteria ?? [], missingCriteria: [], failedCriteria: [], unmatchedCriteria: [], evidenceIds: [], evidenceIdCount: summary.evidenceCount ?? 0 }
+    : deriveVerdictFromSummary(policy.requiredCriteria ?? [], summary);
   return {
     issueKey,
     requiredCriteria: policy.requiredCriteria ?? [],

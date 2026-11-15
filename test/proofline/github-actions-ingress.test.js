@@ -70,7 +70,7 @@ test('rejects non-POST requests and malformed evidence', async () => {
   assert.equal((await handleGitHubActionsIngress(signedRequest({ body: JSON.stringify(bad) }), deps)).statusCode, 400);
 });
 
-test('returns retryable 503 when per-issue storage lock is busy', async () => {
+test('returns retryable 503 when optimistic concurrency retries are exhausted', async () => {
   const deps = dependencies();
   deps.saveEvidence = async () => { throw new StoreBusyError(); };
   const result = await handleGitHubActionsIngress(signedRequest(), deps);

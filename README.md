@@ -9,7 +9,7 @@ Proofline gives each Jira issue an evidence-backed completion status. It does no
 - Forge Jira issue panel (UI Kit).
 - Per-issue required-criteria policy.
 - Per-installation Forge KVS storage for evidence and policies.
-- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue serialized atomic writes, and duplicate evidence rejection.
+- Authenticated GitHub Actions evidence web trigger using HMAC-SHA256, timestamp freshness, one-time nonce replay protection, per-issue version-checked atomic transactions, and duplicate evidence rejection.
 - Encrypted Forge KVS Secret Store for the webhook signing key, with a 15-minute rotation overlap.
 - Deterministic `PASS`, `FAIL`, and `INDETERMINATE` verdict derivation.
 - MCP Inspector operational observation adapter; observations cannot satisfy verification criteria.
@@ -22,7 +22,7 @@ The Forge app is scaffolded but has not yet been registered, deployed, or instal
 - Verdicts are deterministic: `PASS`, `FAIL`, or `INDETERMINATE`.
 - CI is authoritative for build, test, and security outcomes.
 - MCP operational telemetry is distinct from verification evidence.
-- Evidence records preserve provenance and use per-issue serialized atomic writes with duplicate-ID checks; this is application-level append-only behavior, not cryptographic immutability.
+- Evidence records preserve provenance and use per-issue version-checked atomic transactions with duplicate-ID checks; this is application-level append-only behavior, not cryptographic immutability.
 - Model-generated claims never directly set a verdict.
 
 ## Repository layout
